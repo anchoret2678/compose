@@ -9,10 +9,10 @@ from docker.errors import APIError
 from .. import mock
 from .. import unittest
 from compose.config.errors import DependencyError
+from compose.config.types import MountSpec
 from compose.config.types import ServicePort
 from compose.config.types import ServiceSecret
 from compose.config.types import VolumeFromSpec
-from compose.config.types import VolumeSpec
 from compose.const import LABEL_CONFIG_HASH
 from compose.const import LABEL_ONE_OFF
 from compose.const import LABEL_PROJECT
@@ -880,11 +880,14 @@ class ServiceVolumesTest(unittest.TestCase):
         self.mock_client.api_version = DEFAULT_DOCKER_API_VERSION
 
     def test_build_volume_binding(self):
-        binding = build_volume_binding(VolumeSpec.parse('/outside:/inside', True))
-        assert binding == ('/inside', '/outside:/inside:rw')
+        binding = build_volume_binding(MountSpec.parse('/outside:/inside', True))
+        assert binding[0] == '/inside'
+        assert binding[1].repr() == MountSpec(
+            type='bind', source='/outside', target='/inside'
+        ).repr()
 
     def test_get_container_data_volumes(self):
-        options = [VolumeSpec.parse(v) for v in [
+        options = [MountSpec.parse(v) for v in [
             '/host/volume:/host/volume:ro',
             '/new/volume',
             '/existing/volume',
@@ -931,8 +934,8 @@ class ServiceVolumesTest(unittest.TestCase):
         }, has_been_inspected=True)
 
         expected = [
-            VolumeSpec.parse('existingvolume:/existing/volume:rw'),
-            VolumeSpec.parse('imagedata:/mnt/image/data:rw'),
+            MountSpec.parse('existingvolume:/existing/volume:rw'),
+            MountSpec.parse('imagedata:/mnt/image/data:rw'),
         ]
 
         volumes = get_container_data_volumes(container, options, ['/dev/tmpfs'])
@@ -940,7 +943,7 @@ class ServiceVolumesTest(unittest.TestCase):
 
     def test_merge_volume_bindings(self):
         options = [
-            VolumeSpec.parse(v, True) for v in [
+            MountSpec.parse(v, True) for v in [
                 '/host/volume:/host/volume:ro',
                 '/host/rw/volume:/host/rw/volume',
                 '/new/volume',
@@ -980,8 +983,8 @@ class ServiceVolumesTest(unittest.TestCase):
             'web',
             image='busybox',
             volumes=[
-                VolumeSpec.parse('/host/path:/data1', True),
-                VolumeSpec.parse('/host/path:/data2', True),
+                MountSpec.parse('/host/path:/data1', True),
+                MountSpec.parse('/host/path:/data2', True),
             ],
             client=self.mock_client,
         )
@@ -1010,7 +1013,7 @@ class ServiceVolumesTest(unittest.TestCase):
         service = Service(
             'web',
             image='busybox',
-            volumes=[VolumeSpec.parse('/host/path:/data')],
+            volumes=[MountSpec.parse('/host/path:/data')],
             client=self.mock_client,
         )
         volume_name = 'abcdefff1234'
@@ -1051,7 +1054,7 @@ class ServiceVolumesTest(unittest.TestCase):
         )
 
     def test_warn_on_masked_volume_no_warning_when_no_container_volumes(self):
-        volumes_option = [VolumeSpec('/home/user', '/path', 'rw')]
+        volumes_option = [MountSpec(source='/home/user', target='/path', type='bind')]
         container_volumes = []
         service = 'service_name'
 
@@ -1061,10 +1064,10 @@ class ServiceVolumesTest(unittest.TestCase):
         assert not mock_log.warn.called
 
     def test_warn_on_masked_volume_when_masked(self):
-        volumes_option = [VolumeSpec('/home/user', '/path', 'rw')]
+        volumes_option = [MountSpec(source='/home/user', target='/path', type='bind')]
         container_volumes = [
-            VolumeSpec('/var/lib/docker/path', '/path', 'rw'),
-            VolumeSpec('/var/lib/docker/path', '/other', 'rw'),
+            MountSpec(source='/var/lib/docker/path', target='/path', type='bind'),
+            MountSpec(source='/var/lib/docker/path', target='/other', type='bind'),
         ]
         service = 'service_name'
 
@@ -1074,8 +1077,8 @@ class ServiceVolumesTest(unittest.TestCase):
         mock_log.warn.assert_called_once_with(mock.ANY)
 
     def test_warn_on_masked_no_warning_with_same_path(self):
-        volumes_option = [VolumeSpec('/home/user', '/path', 'rw')]
-        container_volumes = [VolumeSpec('/home/user', '/path', 'rw')]
+        volumes_option = [MountSpec(source='/home/user', target='/path', type='bind')]
+        container_volumes = [MountSpec(source='/home/user', target='/path', type='bind')]
         service = 'service_name'
 
         with mock.patch('compose.service.log', autospec=True) as mock_log:
@@ -1084,9 +1087,9 @@ class ServiceVolumesTest(unittest.TestCase):
         assert not mock_log.warn.called
 
     def test_warn_on_masked_no_warning_with_container_only_option(self):
-        volumes_option = [VolumeSpec(None, '/path', 'rw')]
+        volumes_option = [MountSpec(target='/path', type='volume')]
         container_volumes = [
-            VolumeSpec('/var/lib/docker/volume/path', '/path', 'rw')
+            MountSpec(source='/var/lib/docker/volume/path', target='/path', type='bind')
         ]
         service = 'service_name'
 
@@ -1105,7 +1108,7 @@ class ServiceVolumesTest(unittest.TestCase):
             'web',
             client=self.mock_client,
             image='busybox',
-            volumes=[VolumeSpec.parse(volume, True)],
+            volumes=[MountSpec.parse(volume, True)],
         ).create_container()
 
         assert self.mock_client.create_container.call_count == 1
